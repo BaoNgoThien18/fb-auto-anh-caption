@@ -195,7 +195,9 @@ async function readPool() {
 
 async function status() {
   const s = await settings();
-  await chrome.storage.local.remove('askBlocked'); // bấm icon extension = cho thử ghi lại vào Downloads
+  // Bấm icon extension = cho thử ghi lại vào Downloads + dò lại vị trí Downloads (phòng khi vừa đổi "Vị trí" trong Chrome)
+  const cachedPaths = Object.keys(await chrome.storage.local.get(null)).filter(k => k.startsWith('sharedPath:'));
+  await chrome.storage.local.remove(['askBlocked', ...cachedPaths]);
   try {
     const { f, pool } = await readPool();
     const { history, reserved } = await loadState(f.folderUrl);
