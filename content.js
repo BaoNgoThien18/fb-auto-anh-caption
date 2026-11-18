@@ -1,10 +1,16 @@
 // content.js — Phát hiện hộp "Create post / Tạo bài viết" trên Facebook, tự điền 1 caption + 1 ảnh chưa dùng.
 // Không tự bấm Post. Chỉ ghi "đã dùng" khi người dùng bấm Post; đóng hộp thì trả ảnh/caption lại.
 (function () {
-  if (window.__fbAutoPhotoLoaded) return;
-  window.__fbAutoPhotoLoaded = true;
+  // Extension vừa cài/tải lại sẽ tự chèn lại script vào tab Facebook đang mở; bản cũ (đã mất kết nối) thì nhường chỗ
+  const alive = () => { try { return Boolean(chrome.runtime?.id); } catch { return false; } };
+  if (window.__fbAutoPhotoAlive?.()) return;
+  window.__fbAutoPhotoAlive = alive;
 
-  const TITLES = /^(Create post|Tạo bài viết|Tạo bài viết công khai)$/i;
+  // Tiêu đề hộp tạo bài (giao diện Anh/Việt, trang cá nhân, chế độ chuyên nghiệp, Page)
+  const TITLES = /^(create (a )?(public )?post|tạo bài viết( công khai)?)$/i;
+  // Chữ gợi ý trong ô soạn bài: "What's on your mind?", "Bạn đang nghĩ gì?", "Write something..."
+  const PROMPTS = /on your mind|đang nghĩ gì|write something|viết gì đó|create a public post|tạo bài viết công khai/i;
+  const COMMENT_BOX = /comment|bình luận|reply|phản hồi|trả lời/i;
   const POST_LABELS = /^(Post|Đăng|Đăng bài)$/i;
   const handled = new WeakSet();
   // editor (ô soạn bài) → { token, done }. Facebook thay ô soạn bài mới khi xóa nháp, nên theo dõi theo editor chứ không theo hộp
@@ -32,12 +38,16 @@
   }
 
   // Hộp Create post: có tiêu đề đúng + ô soạn bài Lexical
+  // Hộp Create post: ô soạn bài (không phải ô bình luận) + tiêu đề "Create post" HOẶC chữ gợi ý "What's on your mind"
   function findComposer(dialog) {
-    const title = [...dialog.querySelectorAll('h1,h2,h3,[role="heading"]')].some(h => TITLES.test(h.innerText.trim()));
-    if (!title) return null;
-    const editor = dialog.querySelector('[contenteditable="true"][role="textbox"]');
+    const editor = [...dialog.querySelectorAll('[contenteditable="true"][role="textbox"]')]
+      .find(el => !COMMENT_BOX.test(`${el.getAttribute('aria-label') || ''} ${el.getAttribute('aria-placeholder') || ''}`));
+    if (!editor) return null;
+    const title = [...dialog.querySelectorAll('h1,h2,h3,[role="heading"]')].some(h => TITLES.test(h.innerText.trim().replace(/\s+/g, ' ')));
+    const hint = `${editor.getAttribute('aria-label') || ''} ${editor.getAttribute('aria-placeholder') || ''} ${editor.parentElement?.innerText || ''}`;
+    if (!title && !PROMPTS.test(hint)) return null;
     const input = dialog.querySelector('input[type="file"][accept*="image"]');
-    return editor ? { editor, input } : null;
+    return { editor, input };
   }
 
   function isEmpty(editor) {
@@ -95,6 +105,7 @@
   }
 
   async function fill(dialog, composer) {
+    toast('FB Auto Ảnh: đang lấy ảnh + caption…');
     const prep = await send({ type: 'PREPARE' });
     if (prep?.packageDir) {
       const scanned = await scanPackageDir(prep.packageDir);
@@ -140,6 +151,7 @@
   }, true);
 
   function scan() {
+    if (!alive()) { observer.disconnect(); return; }
     for (const dialog of document.querySelectorAll('[role="dialog"]')) {
       const composer = findComposer(dialog);
       if (!composer || handled.has(composer.editor) || !isEmpty(composer.editor)) continue;
@@ -156,7 +168,7 @@
   }
 
   let timer = null;
-  new MutationObserver(() => { clearTimeout(timer); timer = setTimeout(scan, 300); })
-    .observe(document.documentElement, { childList: true, subtree: true });
+  const observer = new MutationObserver(() => { clearTimeout(timer); timer = setTimeout(scan, 300); });
+  observer.observe(document.documentElement, { childList: true, subtree: true });
   scan();
 })();

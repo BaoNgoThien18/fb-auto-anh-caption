@@ -14,6 +14,10 @@ Mở hộp **Tạo bài viết** trên Facebook → tự điền 1 ảnh + 1 cap
 - Ảnh ghép nhiều khung được tự cắt, mỗi bài dùng 1 ô.
 - Đã đăng thì ghi vào `Downloads/fb-anh/da-dang/` → mọi profile trên máy không đăng lại. Xóa file trong đó để dùng lại.
 
+## Cập nhật bản mới
+Tải ZIP mới, chép đè vào thư mục cũ → vào `chrome://extensions` bấm **↻ (Reload)** của extension.
+
 ## Lỗi hay gặp
+- Bấm "Bạn đang nghĩ gì?" mà không thấy gì → bấm ↻ Reload extension rồi **F5 trang Facebook**. Đúng thì sẽ hiện chữ "FB Auto Ảnh: đang lấy ảnh…" ở cuối màn hình.
 - Không đọc được ảnh → chưa bật **Allow access to file URLs**.
 - Không ghi được `da-dang` → tắt "Hỏi vị trí lưu tệp" trong `chrome://settings/downloads`.

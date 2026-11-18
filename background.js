@@ -269,3 +269,12 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   run().then(sendResponse, err => sendResponse({ ok: false, error: err.message }));
   return true;
 });
+
+// Cài mới / tải lại extension: tab Facebook đang mở chưa có content.js (Chrome chỉ chèn khi tải trang)
+// → tự chèn luôn, người dùng không cần F5.
+chrome.runtime.onInstalled.addListener(async () => {
+  const tabs = await chrome.tabs.query({ url: ['https://www.facebook.com/*', 'https://web.facebook.com/*'] });
+  for (const tab of tabs) {
+    chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js'] }).catch(() => {});
+  }
+});
