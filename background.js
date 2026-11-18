@@ -46,6 +46,9 @@ const MARK_README = 'Mỗi file trong thư mục này đánh dấu 1 ảnh (anh_
   + 'Mọi profile dùng chung thư mục ảnh sẽ không đăng lại những thứ có ở đây.\n'
   + 'Muốn dùng lại ảnh/caption nào thì xóa file tương ứng. Xóa hết = dùng lại từ đầu.\n';
 
+const ASK_ERROR = 'Chrome đang bật "Hỏi vị trí lưu từng tệp trước khi tải xuống" nên extension không ghi được vào Downloads/'
+  + ' → mở chrome://settings/downloads, TẮT mục đó, rồi bấm vào icon extension để thử lại.';
+
 async function writeDownload(relPath, text) {
   try { await chrome.downloads.setUiOptions({ enabled: false }); } catch (_) {}
   try {
@@ -53,19 +56,26 @@ async function writeDownload(relPath, text) {
       url: 'data:text/plain;charset=utf-8,' + encodeURIComponent(text),
       filename: relPath, conflictAction: 'overwrite', saveAs: false,
     });
-    let item;
-    for (let i = 0; i < 100; i++) {
+    // File chữ nhỏ ghi xong trong vài trăm ms. Sau 1s vẫn chưa có tên file = Chrome đang mở hộp "Lưu thành…"
+    // (bật "Hỏi vị trí lưu từng tệp") → chờ người dùng bấm Lưu tối đa 2 phút, không bỏ ngang rồi hỏi lại.
+    let item, prompted = false;
+    const start = Date.now();
+    for (;;) {
       [item] = await chrome.downloads.search({ id });
       if (item && item.state !== 'in_progress') break;
-      await new Promise(r => setTimeout(r, 100));
+      if (!prompted && Date.now() - start > 1000 && !item?.filename) prompted = true;
+      if (Date.now() - start > (prompted ? 120000 : 10000)) break;
+      await new Promise(r => setTimeout(r, 150));
     }
+    if (item?.state === 'in_progress') { try { await chrome.downloads.cancel(id); } catch (_) {} }
     try { await chrome.downloads.erase({ id }); } catch (_) {} // chỉ xóa khỏi lịch sử tải, file vẫn giữ
-    if (item?.state !== 'complete') throw new Error(`Không ghi được ${relPath}: ${item?.error || 'quá thời gian'}`);
-    const abs = String(item.filename || '').replace(/\\/g, '/');
-    if (!abs.endsWith('/' + relPath)) {
-      throw new Error('Chrome không lưu file vào thư mục Downloads (có thể đang bật "Hỏi nơi lưu mỗi lần tải" hoặc có công cụ tự động hóa chiếm quyền tải xuống).');
+    const abs = String(item?.filename || '').replace(/\\/g, '/');
+    if (item?.state === 'complete' && abs.endsWith('/' + relPath)) {
+      await chrome.storage.local.set({ askWarned: prompted }); // còn bật hỏi nơi lưu → popup nhắc tắt
+      return abs;
     }
-    return abs;
+    if (prompted || item?.state === 'complete') throw new Error(ASK_ERROR);
+    throw new Error(`Không ghi được ${relPath}: ${item?.error || 'quá thời gian'}`);
   } finally {
     try { await chrome.downloads.setUiOptions({ enabled: true }); } catch (_) {}
   }
@@ -76,8 +86,16 @@ async function sharedFolderPath(sub) {
   const key = `sharedPath:${sub}`;
   const cached = (await chrome.storage.local.get(key))[key];
   if (cached) return cached;
+  // Đã từng hỏi nơi lưu mà không xong → không tự mở lại hộp "Lưu thành…" mỗi lần mở hộp tạo bài.
+  // Chỉ thử lại khi người dùng bấm icon extension (popup gọi STATUS, xóa cờ này).
+  if ((await chrome.storage.local.get('askBlocked')).askBlocked) throw new Error(ASK_ERROR);
   const rel = `${sub}/${MARK_DIR}/README.txt`;
-  const abs = await writeDownload(rel, MARK_README);
+  let abs;
+  try { abs = await writeDownload(rel, MARK_README); }
+  catch (err) {
+    if (err.message === ASK_ERROR) await chrome.storage.local.set({ askBlocked: true });
+    throw err;
+  }
   const folder = abs.slice(0, abs.length - rel.length) + sub;
   await chrome.storage.local.set({ [key]: folder });
   return folder;
@@ -177,6 +195,7 @@ async function readPool() {
 
 async function status() {
   const s = await settings();
+  await chrome.storage.local.remove('askBlocked'); // bấm icon extension = cho thử ghi lại vào Downloads
   try {
     const { f, pool } = await readPool();
     const { history, reserved } = await loadState(f.folderUrl);
@@ -190,6 +209,7 @@ async function status() {
       files: f.images.length, collages: collages.size, tiles: pool.filter(e => e.tile).length,
       captions: { total: f.captions.length, used: f.captions.filter(c => usedCap.has(c)).length },
       reserved: reserved.length,
+      askWarned: Boolean((await chrome.storage.local.get('askWarned')).askWarned),
     };
   } catch (err) {
     return { ok: false, enabled: s.enabled, folder: s.folder, error: err.message };

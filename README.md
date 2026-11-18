@@ -25,4 +25,4 @@ Tải ZIP mới, chép đè vào thư mục cũ → vào `chrome://extensions` b
 ## Lỗi hay gặp
 - Bấm "Bạn đang nghĩ gì?" mà không thấy gì → bấm ↻ Reload extension rồi **F5 trang Facebook**. Nhận được hộp tạo bài thì sẽ hiện chữ "FB Auto Ảnh: đang lấy ảnh…" ở cuối màn hình.
 - Không đọc được ảnh → chưa bật **Allow access to file URLs**.
-- Không ghi được `da-dang` → tắt "Hỏi vị trí lưu tệp" trong `chrome://settings/downloads`.
+- Hiện hộp **lưu file README.txt** / không ghi được `da-dang` → Chrome đang bật "Hỏi vị trí lưu từng tệp trước khi tải xuống". Vào `chrome://settings/downloads` **tắt** mục đó rồi bấm icon extension.
