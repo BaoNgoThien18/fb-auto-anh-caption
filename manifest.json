@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "FB Auto Ảnh + Caption",
-  "version": "1.4.2",
+  "version": "1.5.0",
   "description": "Mở hộp Create post trên Facebook: tự điền 1 caption + 1 ảnh ngẫu nhiên, không trùng giữa các profile (thư mục chung trong Downloads). Ảnh ghép được tự cắt thành từng ảnh.",
   "permissions": [
     "storage",

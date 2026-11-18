@@ -248,12 +248,13 @@ async function next() {
   const saved = (await chrome.storage.local.get('reserved')).reserved || [];
   saved.push({ token, folderUrl: f.folderUrl, shared: f.shared, image: imageKey, caption, at: Date.now() });
   await chrome.storage.local.set({ reserved: saved.filter(r => Date.now() - r.at < RESERVE_MS) });
-  return { ok: true, token, caption, image: label, files, warnings: [!imageKey && 'Hết ảnh chưa dùng', !caption && 'Hết caption chưa dùng'].filter(Boolean) };
+  // item: trang Facebook giữ lại bản sao, gửi kèm khi bấm Đăng → vẫn ghi được dù giữ chỗ đã quá 10 phút
+  return { ok: true, token, caption, image: label, files, item: { folderUrl: f.folderUrl, shared: f.shared, image: imageKey, caption }, warnings: [!imageKey && 'Hết ảnh chưa dùng', !caption && 'Hết caption chưa dùng'].filter(Boolean) };
 }
 
-async function finish(token, used) {
+async function finish(token, used, fallback) {
   const all = (await chrome.storage.local.get('reserved')).reserved || [];
-  const item = all.find(r => r.token === token);
+  const item = all.find(r => r.token === token) || (used && fallback?.folderUrl ? fallback : null);
   await chrome.storage.local.set({ reserved: all.filter(r => r.token !== token) });
   if (!item || !used) return { ok: true, released: Boolean(item) };
   const { key, history } = await loadState(item.folderUrl);
@@ -277,7 +278,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg?.target === 'offscreen') return;
   const run = {
     NEXT: () => next(),
-    USED: () => finish(msg.token, true),
+    USED: () => finish(msg.token, true, msg.item),
     RELEASE: () => finish(msg.token, false),
     STATUS: () => status(),
     PREPARE: async () => {

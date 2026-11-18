@@ -161,7 +161,7 @@
       send({ type: 'RELEASE', token: res.token });
       return;
     }
-    sessions.set(composer.editor, { token: res.token, done: false });
+    sessions.set(composer.editor, { token: res.token, item: res.item, dialog, done: false, postedAt: 0 });
     const parts = [];
     if (res.caption) parts.push((await insertCaption(composer.editor, res.caption)) ? 'caption' : 'caption (lỗi chèn)');
     if (res.files?.length) {
@@ -175,12 +175,27 @@
     toast(`FB Auto Ảnh: đã điền ${parts.join(' + ')}${warn}. Kiểm tra rồi bấm Post.`, Boolean(warn));
   }
 
-  // Bấm nút Đăng trong hộp → ghi "đã dùng". Nhận theo element: nút Đăng là nút cuối cùng (role=button)
-  // của hộp tạo bài, nằm sau ô soạn bài + thanh "Thêm vào bài viết"; không dựa vào chữ "Post"/"Đăng".
-  function postButton(dialog, editor) {
-    const buttons = [...dialog.querySelectorAll('[role="button"],button')]
-      .filter(b => !editor.contains(b) && (editor.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING));
-    return buttons[buttons.length - 1] || null;
+  // ===== Nhận lúc ĐĂNG theo element (không dựa vào chữ "Post"/"Đăng") =====
+  // Nút Đăng / Tiếp của hộp tạo bài là nút TO nằm dưới ô soạn bài (rộng gần bằng ô soạn bài);
+  // các nút emoji, ảnh, gắn thẻ, cảm xúc… chỉ là icon nhỏ. Bấm nút to đó → ghi nhận "đang đăng";
+  // sau đó ô soạn bài biến mất (hộp đóng) → tính là ĐÃ ĐĂNG. Không bấm nút đó mà đóng hộp → trả ảnh lại.
+  const POST_WINDOW_MS = 3 * 60 * 1000;
+
+  function isPostButton(btn, editor) {
+    if (editor.contains(btn) || !(editor.compareDocumentPosition(btn) & Node.DOCUMENT_POSITION_FOLLOWING)) return false;
+    const w = btn.getBoundingClientRect().width;
+    const ref = editor.getBoundingClientRect().width;
+    return ref > 0 && w >= ref * 0.6;
+  }
+
+  function markUsed(s) {
+    if (s.done) return;
+    s.done = true;
+    send({ type: 'USED', token: s.token, item: s.item }).then(r => {
+      if (!r?.ok) toast(`FB Auto Ảnh: chưa lưu được ảnh đã đăng — ${r?.error || 'lỗi không rõ'}`, true);
+      else if (r.markError) toast(`FB Auto Ảnh: đã lưu cho profile này nhưng chưa ghi được vào da-dang/ — ${r.markError}`, true);
+      else toast(`FB Auto Ảnh: đã lưu ảnh${r.image ? ` ${r.image}` : ''} là ĐÃ ĐĂNG ✓`);
+    });
   }
 
   document.addEventListener('click', ev => {
@@ -189,11 +204,7 @@
     const dialog = btn.closest('[role="dialog"]');
     if (!dialog) return;
     for (const [editor, s] of sessions) {
-      if (s.done || !dialog.contains(editor) || postButton(dialog, editor) !== btn) continue;
-      s.done = true;
-      send({ type: 'USED', token: s.token }).then(r => {
-        if (r?.markError) toast(`FB Auto Ảnh: đã đăng nhưng chưa đánh dấu được cho profile khác — ${r.markError}`, true);
-      });
+      if (!s.done && (dialog.contains(editor) || dialog === s.dialog) && (!editor.isConnected || isPostButton(btn, editor))) s.postedAt = Date.now();
     }
   }, true);
 
@@ -207,10 +218,14 @@
     }
     // Ô soạn bài biến mất (đóng hộp / xóa nháp) mà chưa bấm Post → trả ảnh/caption lại để dùng sau
     for (const [editor, s] of sessions) {
-      if (!document.contains(editor)) {
-        if (!s.done) send({ type: 'RELEASE', token: s.token });
-        sessions.delete(editor);
-      }
+      const posting = s.postedAt && Date.now() - s.postedAt < POST_WINDOW_MS;
+      // Đã bấm Đăng/Tiếp → chờ tới khi CẢ HỘP đóng/ẩn (Page có màn "Tiếp" → "Đăng" thì vẫn đợi tới lúc đăng xong)
+      const dialogOpen = s.dialog?.isConnected && s.dialog.getClientRects().length > 0;
+      const gone = posting ? !dialogOpen : !editor.isConnected;
+      if (!gone) continue;
+      if (posting) markUsed(s);
+      else if (!s.done) send({ type: 'RELEASE', token: s.token });
+      sessions.delete(editor);
     }
   }
 
