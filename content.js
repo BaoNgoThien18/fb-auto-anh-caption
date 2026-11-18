@@ -55,6 +55,42 @@
   }
 
   // Hộp Create post: có tiêu đề đúng + ô soạn bài Lexical
+  // Đếm ngược trước khi điền: thanh nhỏ ở cuối màn hình (vòng xoay + số giây + thanh chạy + nút Hủy).
+  // Tự hủy nếu đóng hộp hoặc người dùng tự gõ chữ. Trả về true khi hết giờ, false khi bị hủy.
+  function countdown(seconds, editor) {
+    return new Promise(resolve => {
+      document.getElementById('fb-auto-photo-countdown')?.remove();
+      const box = document.createElement('div');
+      box.id = 'fb-auto-photo-countdown';
+      box.style.cssText = 'position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:2147483647;width:300px;padding:10px 12px 0;border-radius:12px;background:#111827;color:#fff;font:600 13px/1.4 system-ui,sans-serif;box-shadow:0 8px 24px rgba(0,0,0,.3);overflow:hidden';
+      box.innerHTML = `
+        <style>@keyframes fbap-spin{to{transform:rotate(360deg)}}</style>
+        <div style="display:flex;align-items:center;gap:10px;padding-bottom:10px">
+          <span style="width:16px;height:16px;flex:none;border:2px solid rgba(255,255,255,.25);border-top-color:#60a5fa;border-radius:50%;animation:fbap-spin .8s linear infinite"></span>
+          <span style="flex:1">Điền ảnh + caption sau <b data-left style="font-variant-numeric:tabular-nums">${seconds.toFixed(1)}</b>s</span>
+          <button type="button" data-cancel style="all:unset;cursor:pointer;padding:2px 10px;border-radius:999px;background:rgba(255,255,255,.14);font-size:12px">Hủy</button>
+        </div>
+        <div style="height:3px;background:rgba(255,255,255,.12)"><div data-bar style="height:100%;width:100%;background:#60a5fa"></div></div>`;
+      document.documentElement.appendChild(box);
+      const left = box.querySelector('[data-left]');
+      const bar = box.querySelector('[data-bar]');
+      const total = seconds * 1000;
+      const start = performance.now();
+      let raf = 0;
+      const finish = ok => { cancelAnimationFrame(raf); box.remove(); resolve(ok); };
+      box.querySelector('[data-cancel]').addEventListener('click', () => { toast('FB Auto Ảnh: đã hủy điền cho hộp này'); finish(false); });
+      const tick = now => {
+        if (!editor.isConnected || !isEmpty(editor)) return finish(false); // đóng hộp / tự gõ chữ
+        const remain = Math.max(0, total - (now - start));
+        left.textContent = (remain / 1000).toFixed(1);
+        bar.style.width = `${(remain / total) * 100}%`;
+        if (remain <= 0) return finish(true);
+        raf = requestAnimationFrame(tick);
+      };
+      raf = requestAnimationFrame(tick);
+    });
+  }
+
   function isEmpty(editor) {
     return !editor.innerText.replace(/\s+/g, '');
   }
@@ -110,8 +146,10 @@
   }
 
   async function fill(dialog, composer) {
-    toast('FB Auto Ảnh: đang lấy ảnh + caption…');
     const prep = await send({ type: 'PREPARE' });
+    if (prep?.enabled !== false && prep?.delaySeconds > 0 && !(await countdown(prep.delaySeconds, composer.editor))) return;
+    if (!composer.editor.isConnected || !isEmpty(composer.editor)) return;
+    toast('FB Auto Ảnh: đang lấy ảnh + caption…');
     if (prep?.packageDir) {
       const scanned = await scanPackageDir(prep.packageDir);
       if (!scanned.ok) { toast(`FB Auto Ảnh: ${scanned.error}`, true); return; }

@@ -14,6 +14,11 @@ Mở hộp **Tạo bài viết** trên Facebook → tự điền 1 ảnh + 1 cap
 - Ảnh ghép nhiều khung được tự cắt, mỗi bài dùng 1 ô.
 - Đã đăng thì ghi vào `Downloads/fb-anh/da-dang/` → mọi profile trên máy không đăng lại. Xóa file trong đó để dùng lại.
 
+## Tùy chỉnh (`settings.json` trong thư mục extension)
+- `"delaySeconds": 2` — mở hộp tạo bài xong chờ bao nhiêu giây mới điền (có đếm ngược + nút Hủy). `0` = điền ngay.
+- `"splitCollage": false` — không cắt ảnh ghép.
+- Sửa xong bấm ↻ Reload extension.
+
 ## Cập nhật bản mới
 Tải ZIP mới, chép đè vào thư mục cũ → vào `chrome://extensions` bấm **↻ (Reload)** của extension.
 

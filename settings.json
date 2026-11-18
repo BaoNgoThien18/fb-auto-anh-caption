@@ -2,5 +2,6 @@
   "folder": "Downloads/fb-anh",
   "captionFile": "captions.txt",
   "enabled": true,
-  "splitCollage": true
+  "splitCollage": true,
+  "delaySeconds": 2
 }

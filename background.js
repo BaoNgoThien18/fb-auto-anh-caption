@@ -7,7 +7,9 @@ const MIME = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'i
 async function settings() {
   const res = await fetch(chrome.runtime.getURL('settings.json'), { cache: 'no-store' });
   const s = await res.json();
-  return { folder: String(s.folder || ''), captionFile: String(s.captionFile || ''), enabled: s.enabled !== false, splitCollage: s.splitCollage !== false };
+  return { folder: String(s.folder || ''), captionFile: String(s.captionFile || ''), enabled: s.enabled !== false, splitCollage: s.splitCollage !== false,
+    // Chờ bao nhiêu giây sau khi mở hộp tạo bài rồi mới điền (0–60, mặc định 2)
+    delaySeconds: Number.isFinite(Number(s.delaySeconds)) ? Math.min(60, Math.max(0, Number(s.delaySeconds))) : 2 };
 }
 
 async function ensureOffscreen() {
@@ -256,7 +258,10 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     USED: () => finish(msg.token, true),
     RELEASE: () => finish(msg.token, false),
     STATUS: () => status(),
-    PREPARE: async () => ({ ok: true, packageDir: P.packageDir((await settings()).folder) }),
+    PREPARE: async () => {
+      const s = await settings();
+      return { ok: true, packageDir: P.packageDir(s.folder), delaySeconds: s.delaySeconds, enabled: s.enabled };
+    },
     PKG_LIST: async () => {
       const dir = P.packageDir(msg.dir);
       if (!dir || !Array.isArray(msg.files)) return { ok: false, error: 'Danh sách file không hợp lệ' };
