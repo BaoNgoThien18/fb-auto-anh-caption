@@ -6,12 +6,29 @@
   if (window.__fbAutoPhotoAlive?.()) return;
   window.__fbAutoPhotoAlive = alive;
 
-  // Tiêu đề hộp tạo bài (giao diện Anh/Việt, trang cá nhân, chế độ chuyên nghiệp, Page)
-  const TITLES = /^(create (a )?(public )?post|tạo bài viết( công khai)?)$/i;
-  // Chữ gợi ý trong ô soạn bài: "What's on your mind?", "Bạn đang nghĩ gì?", "Write something..."
-  const PROMPTS = /on your mind|đang nghĩ gì|write something|viết gì đó|create a public post|tạo bài viết công khai/i;
-  const COMMENT_BOX = /comment|bình luận|reply|phản hồi|trả lời/i;
-  const POST_LABELS = /^(Post|Đăng|Đăng bài)$/i;
+  // ===== Nhận hộp tạo bài THEO ELEMENT (không phụ thuộc ngôn ngữ Facebook) =====
+  // Hộp tạo bài = [role=dialog] có:
+  //   - ô soạn bài Lexical: [contenteditable=true][role=textbox][data-lexical-editor]
+  //   - ô chọn file nhận cả ảnh + video, chọn nhiều file (nút "Ảnh/video" của hộp tạo bài)
+  //   - KHÔNG có bài viết/bình luận ([role=article]) hay khung tin nhắn ([role=grid]/[role=row])
+  const EDITOR = '[contenteditable="true"][role="textbox"]';
+  const MEDIA_INPUT = 'input[type="file"][accept*="image"]';
+
+  function mediaInput(dialog) {
+    const inputs = [...dialog.querySelectorAll(MEDIA_INPUT)];
+    return inputs.find(i => i.multiple && /video/.test(i.accept)) || null;
+  }
+
+  function findComposer(dialog) {
+    if (dialog.querySelector('[role="article"],[role="grid"],[role="row"]')) return null;
+    const editors = [...dialog.querySelectorAll(EDITOR)];
+    const editor = editors.find(el => el.hasAttribute('data-lexical-editor')) || (editors.length === 1 ? editors[0] : null);
+    if (!editor) return null;
+    const input = mediaInput(dialog);
+    if (!input) return null;
+    return { editor, input };
+  }
+
   const handled = new WeakSet();
   // editor (ô soạn bài) → { token, done }. Facebook thay ô soạn bài mới khi xóa nháp, nên theo dõi theo editor chứ không theo hộp
   const sessions = new Map();
@@ -38,18 +55,6 @@
   }
 
   // Hộp Create post: có tiêu đề đúng + ô soạn bài Lexical
-  // Hộp Create post: ô soạn bài (không phải ô bình luận) + tiêu đề "Create post" HOẶC chữ gợi ý "What's on your mind"
-  function findComposer(dialog) {
-    const editor = [...dialog.querySelectorAll('[contenteditable="true"][role="textbox"]')]
-      .find(el => !COMMENT_BOX.test(`${el.getAttribute('aria-label') || ''} ${el.getAttribute('aria-placeholder') || ''}`));
-    if (!editor) return null;
-    const title = [...dialog.querySelectorAll('h1,h2,h3,[role="heading"]')].some(h => TITLES.test(h.innerText.trim().replace(/\s+/g, ' ')));
-    const hint = `${editor.getAttribute('aria-label') || ''} ${editor.getAttribute('aria-placeholder') || ''} ${editor.parentElement?.innerText || ''}`;
-    if (!title && !PROMPTS.test(hint)) return null;
-    const input = dialog.querySelector('input[type="file"][accept*="image"]');
-    return { editor, input };
-  }
-
   function isEmpty(editor) {
     return !editor.innerText.replace(/\s+/g, '');
   }
@@ -122,7 +127,7 @@
     const parts = [];
     if (res.caption) parts.push((await insertCaption(composer.editor, res.caption)) ? 'caption' : 'caption (lỗi chèn)');
     if (res.files?.length) {
-      const input = composer.input || dialog.querySelector('input[type="file"][accept*="image"]');
+      const input = composer.input?.isConnected ? composer.input : mediaInput(dialog);
       if (input) {
         attachImages(input, res.files);
         parts.push(`ảnh ${res.image}`);
@@ -132,21 +137,25 @@
     toast(`FB Auto Ảnh: đã điền ${parts.join(' + ')}${warn}. Kiểm tra rồi bấm Post.`, Boolean(warn));
   }
 
-  // Bấm Post trong hộp → ghi "đã dùng"
+  // Bấm nút Đăng trong hộp → ghi "đã dùng". Nhận theo element: nút Đăng là nút cuối cùng (role=button)
+  // của hộp tạo bài, nằm sau ô soạn bài + thanh "Thêm vào bài viết"; không dựa vào chữ "Post"/"Đăng".
+  function postButton(dialog, editor) {
+    const buttons = [...dialog.querySelectorAll('[role="button"],button')]
+      .filter(b => !editor.contains(b) && (editor.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING));
+    return buttons[buttons.length - 1] || null;
+  }
+
   document.addEventListener('click', ev => {
-    const btn = ev.target.closest?.('[role="button"],button,[aria-label]');
-    if (!btn) return;
-    const label = (btn.getAttribute('aria-label') || btn.innerText || '').trim();
-    if (!POST_LABELS.test(label) || btn.getAttribute('aria-disabled') === 'true') return;
+    const btn = ev.target.closest?.('[role="button"],button');
+    if (!btn || btn.getAttribute('aria-disabled') === 'true') return;
     const dialog = btn.closest('[role="dialog"]');
     if (!dialog) return;
     for (const [editor, s] of sessions) {
-      if (!s.done && dialog.contains(editor)) {
-        s.done = true;
-        send({ type: 'USED', token: s.token }).then(r => {
-          if (r?.markError) toast(`FB Auto Ảnh: đã đăng nhưng chưa đánh dấu được cho profile khác — ${r.markError}`, true);
-        });
-      }
+      if (s.done || !dialog.contains(editor) || postButton(dialog, editor) !== btn) continue;
+      s.done = true;
+      send({ type: 'USED', token: s.token }).then(r => {
+        if (r?.markError) toast(`FB Auto Ảnh: đã đăng nhưng chưa đánh dấu được cho profile khác — ${r.markError}`, true);
+      });
     }
   }, true);
 

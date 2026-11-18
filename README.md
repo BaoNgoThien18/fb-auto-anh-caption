@@ -18,6 +18,6 @@ Mở hộp **Tạo bài viết** trên Facebook → tự điền 1 ảnh + 1 cap
 Tải ZIP mới, chép đè vào thư mục cũ → vào `chrome://extensions` bấm **↻ (Reload)** của extension.
 
 ## Lỗi hay gặp
-- Bấm "Bạn đang nghĩ gì?" mà không thấy gì → bấm ↻ Reload extension rồi **F5 trang Facebook**. Đúng thì sẽ hiện chữ "FB Auto Ảnh: đang lấy ảnh…" ở cuối màn hình.
+- Bấm "Bạn đang nghĩ gì?" mà không thấy gì → bấm ↻ Reload extension rồi **F5 trang Facebook**. Nhận được hộp tạo bài thì sẽ hiện chữ "FB Auto Ảnh: đang lấy ảnh…" ở cuối màn hình.
 - Không đọc được ảnh → chưa bật **Allow access to file URLs**.
 - Không ghi được `da-dang` → tắt "Hỏi vị trí lưu tệp" trong `chrome://settings/downloads`.
