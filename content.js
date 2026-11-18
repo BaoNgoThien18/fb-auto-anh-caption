@@ -30,6 +30,8 @@
   }
 
   const handled = new WeakSet();
+  const filledDialogs = new Set();     // hộp tạo bài đã điền rồi (bỏ khỏi danh sách khi hộp đóng/ẩn)
+  let filling = false;                 // đang đếm ngược / đang lấy ảnh cho 1 hộp
   // editor (ô soạn bài) → { token, done }. Facebook thay ô soạn bài mới khi xóa nháp, nên theo dõi theo editor chứ không theo hộp
   const sessions = new Map();
 
@@ -127,7 +129,7 @@
       dt.items.add(new File([bytes], file.name, { type: file.mime, lastModified: Date.now() }));
     }
     input.files = dt.files;
-    input.dispatchEvent(new Event('input', { bubbles: true }));
+    // Chỉ bắn 1 sự kiện "change": bắn thêm "input" thì hộp đăng của Page nhận ảnh 2 lần
     input.dispatchEvent(new Event('change', { bubbles: true }));
   }
 
@@ -210,11 +212,20 @@
 
   function scan() {
     if (!alive()) { observer.disconnect(); return; }
+    // Mỗi lần mở hộp tạo bài chỉ điền ĐÚNG 1 LẦN. Bấm Next/Tiếp, quay lại… Facebook dựng lại ô soạn bài
+    // (có lúc ẩn hoặc trống trong giây lát) → không điền thêm khi hộp đó đã điền / đang có phiên chưa xong.
+    for (const d of filledDialogs) if (!d.isConnected || !d.getClientRects().length) filledDialogs.delete(d);
+    const busy = [...sessions.values()].some(x => !x.done && x.dialog?.isConnected) || filling;
     for (const dialog of document.querySelectorAll('[role="dialog"]')) {
+      if (busy || filledDialogs.has(dialog)) continue;
       const composer = findComposer(dialog);
       if (!composer || handled.has(composer.editor) || !isEmpty(composer.editor)) continue;
+      if (!composer.editor.getClientRects().length) continue; // ô soạn bài đang ẩn (màn khác của hộp)
       handled.add(composer.editor);
-      fill(dialog, composer);
+      filledDialogs.add(dialog);
+      filling = true;
+      fill(dialog, composer).finally(() => { filling = false; });
+      break;
     }
     // Ô soạn bài biến mất (đóng hộp / xóa nháp) mà chưa bấm Post → trả ảnh/caption lại để dùng sau
     for (const [editor, s] of sessions) {
