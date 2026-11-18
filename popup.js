@@ -31,7 +31,7 @@ async function render() {
     ${s.enabled ? '' : '<div class="off">Đang tắt: đặt "enabled": true trong settings.json để bật.</div>'}
     <div class="row"><span>Ảnh còn lại</span><span class="pill">${left(s.images)}/${s.images.total}</span></div>
     <div class="row"><span>Caption còn lại <span class="muted">(${esc(s.captionFile || 'chưa có .txt')})</span></span><span class="pill">${left(s.captions)}/${s.captions.total}</span></div>
-    <div class="muted">${s.files} file ảnh${s.splitCollage ? ` · ${s.collages} ảnh ghép đã cắt thành ${s.tiles} ô (mỗi ô là 1 ảnh, mỗi bài đăng 1 ảnh)` : ' · không cắt ảnh ghép'}</div>
+    <div class="muted">${s.files} file ảnh${s.splitCollage ? ` · ${s.collages} ảnh ghép đã cắt thành ${s.tiles} ô (mỗi ô là 1 ảnh)` : ' · không cắt ảnh ghép'} · <b>mỗi bài ${s.imagesPerPost} ảnh</b></div>
     ${s.shared ? `<div class="muted">Dùng chung cho mọi profile: ${s.sharedMarked} ảnh/caption đã đăng được đánh dấu trong <b>da-dang/</b>. Xóa file trong đó để dùng lại.</div>` : ''}
     ${s.reserved ? `<div class="muted">${s.reserved} bộ đang được giữ trong hộp Create post chưa đăng.</div>` : ''}
     <button id="reset">Làm mới lịch sử${s.shared ? ' của profile này' : ' (dùng lại từ đầu)'}</button>`;

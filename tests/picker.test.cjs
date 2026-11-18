@@ -87,3 +87,23 @@ test('chọn lần lượt: mỗi lần 1 ô, không bao giờ trùng ô; ảnh 
   assert.equal(P.pickUnused(pool.map(e => e.key), P.blockedKeys(pool, used)), null);
   assert.deepEqual([...P.blockedKeys(pool, ['ghep.webp'])], ['ghep.webp#01', 'ghep.webp#02', 'ghep.webp#03']);
 });
+
+test('pickImages: 2 ảnh/bài, ưu tiên ô cùng ảnh ghép, không trùng, kho sắp hết thì trả ít hơn', () => {
+  const pool = P.buildPool(
+    [{ name: 'ghep.jpg', size: 1, mtime: 1 }, { name: 'don.jpg', size: 2, mtime: 2 }],
+    { 'ghep.jpg': { sig: '1:1', tiles: [{}, {}, {}] } },
+  );
+  // ghep.jpg#01..03 + don.jpg
+  const first0 = () => 0;
+  assert.deepEqual(P.pickImages(pool, [], 2, first0), ['ghep.jpg#01', 'ghep.jpg#02']);
+  // Ô cùng bộ đã dùng hết 2 → ô còn lại + sang ảnh khác
+  assert.deepEqual(P.pickImages(pool, ['ghep.jpg#01', 'ghep.jpg#02'], 2, first0), ['ghep.jpg#03', 'don.jpg']);
+  // Ảnh đơn trước → lấy thêm ảnh khác
+  assert.deepEqual(P.pickImages(pool, ['ghep.jpg#01', 'ghep.jpg#02', 'ghep.jpg#03'], 2, first0), ['don.jpg']);
+  assert.deepEqual(P.pickImages(pool, pool.map(e => e.key), 2), []);
+  for (let i = 0; i < 50; i++) {
+    const keys = P.pickImages(pool, [], 2);
+    assert.equal(new Set(keys).size, 2);
+    assert.equal(keys.every(k => k.startsWith('ghep')) || keys.includes('don.jpg'), true);
+  }
+});

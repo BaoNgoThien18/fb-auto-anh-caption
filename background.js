@@ -9,7 +9,9 @@ async function settings() {
   const s = await res.json();
   return { folder: String(s.folder || ''), captionFile: String(s.captionFile || ''), enabled: s.enabled !== false, splitCollage: s.splitCollage !== false,
     // Chờ bao nhiêu giây sau khi mở hộp tạo bài rồi mới điền (0–60, mặc định 2)
-    delaySeconds: Number.isFinite(Number(s.delaySeconds)) ? Math.min(60, Math.max(0, Number(s.delaySeconds))) : 2 };
+    delaySeconds: Number.isFinite(Number(s.delaySeconds)) ? Math.min(60, Math.max(0, Number(s.delaySeconds))) : 2,
+    // Số ảnh mỗi bài (1–10, mặc định 2)
+    imagesPerPost: Number.isFinite(Number(s.imagesPerPost)) ? Math.min(10, Math.max(1, Math.round(Number(s.imagesPerPost)))) : 2 };
 }
 
 async function ensureOffscreen() {
@@ -106,8 +108,11 @@ async function sharedMarkers(folderUrl) {
   catch (_) { return { anh: new Set(), cap: new Set() }; }
 }
 
+// Bộ ảnh của 1 bài (bản cũ lưu 1 ảnh ở .image, bản mới lưu mảng .images)
+const itemImages = item => (Array.isArray(item?.images) ? item.images : [item?.image]).filter(Boolean);
+
 async function writeMarkers(sub, item) {
-  if (item.image) await writeDownload(`${sub}/${MARK_DIR}/${P.markerName('anh', item.image)}`, `${item.image}\n`);
+  for (const img of itemImages(item)) await writeDownload(`${sub}/${MARK_DIR}/${P.markerName('anh', img)}`, `${img}\n`);
   if (item.caption) await writeDownload(`${sub}/${MARK_DIR}/${P.markerName('cap', item.caption)}`, `${item.caption}\n`);
 }
 
@@ -204,7 +209,7 @@ async function status() {
     const usedImg = P.blockedKeys(pool, usedImageKeys(pool, f, history.images)), usedCap = usedCaptions(f, history.captions);
     const collages = new Set(pool.filter(e => e.tile).map(e => e.name));
     return {
-      ok: true, enabled: s.enabled, splitCollage: s.splitCollage, folder: s.folder, captionFile: f.capFile?.name || '',
+      ok: true, enabled: s.enabled, splitCollage: s.splitCollage, imagesPerPost: s.imagesPerPost, folder: s.folder, captionFile: f.capFile?.name || '',
       shared: f.shared, sharedPath: f.shared ? decodeURIComponent(f.folderUrl.replace(/^file:\/\//, '')) : '',
       sharedMarked: f.markers.anh.size + f.markers.cap.size,
       images: { total: pool.length, used: pool.filter(e => usedImg.has(e.key)).length },
@@ -222,34 +227,37 @@ async function next() {
   const { f, pool } = await readPool();
   if (!f.s.enabled) return { ok: false, error: 'Đang tắt (enabled: false trong settings.json)' };
   const { history, reserved } = await loadState(f.folderUrl);
-  const blockedImg = P.blockedKeys(pool, usedImageKeys(pool, f, [...history.images, ...reserved.map(r => r.image)]));
+  const blockedImg = P.blockedKeys(pool, usedImageKeys(pool, f, [...history.images, ...reserved.flatMap(itemImages)]));
   const blockedCap = usedCaptions(f, [...history.captions, ...reserved.map(r => r.caption)]);
-  const imageKey = P.pickUnused(pool.map(e => e.key), blockedImg);
+  const imageKeys = P.pickImages(pool, blockedImg, f.s.imagesPerPost);
   const caption = P.pickUnused(f.captions, blockedCap);
-  if (!imageKey && !caption) return { ok: false, error: 'Đã dùng hết ảnh và caption trong thư mục' };
-  // Mỗi bài 1 ảnh: ảnh thường giữ nguyên, ảnh ghép thì cắt đúng 1 ô đã chọn
-  let files = [];
-  let label = '';
-  if (imageKey) {
+  if (!imageKeys.length && !caption) return { ok: false, error: 'Đã dùng hết ảnh và caption trong thư mục' };
+  // Mỗi bài imagesPerPost ảnh: ảnh thường giữ nguyên, ảnh ghép thì cắt đúng các ô đã chọn
+  const files = [];
+  const labels = [];
+  for (const imageKey of imageKeys) {
     const entry = pool.find(e => e.key === imageKey);
     const file = f.images.find(i => i.name === entry.name);
     const ext = entry.name.split('.').pop().toLowerCase();
     const mime = MIME[ext] || 'image/jpeg';
     if (entry.tile) {
       const base64 = (await offscreen('CROP', f.folderUrl + file.href, { mime, rect: entry.rect })).base64;
-      files = [{ name: `${entry.name.replace(/\.[^.]+$/, '')}-${String(entry.tile).padStart(2, '0')}.jpg`, mime: 'image/jpeg', base64 }];
-      label = `ô ${entry.tile}/${entry.of} của ${entry.name}`;
+      files.push({ name: `${entry.name.replace(/\.[^.]+$/, '')}-${String(entry.tile).padStart(2, '0')}.jpg`, mime: 'image/jpeg', base64 });
+      labels.push(`ô ${entry.tile}/${entry.of} của ${entry.name}`);
     } else {
-      files = [{ name: entry.name, mime, base64: (await offscreen('READ_BINARY', f.folderUrl + file.href)).base64 }];
-      label = entry.name;
+      files.push({ name: entry.name, mime, base64: (await offscreen('READ_BINARY', f.folderUrl + file.href)).base64 });
+      labels.push(entry.name);
     }
   }
+  const label = labels.join(', ');
+  const want = f.s.imagesPerPost;
   const token = crypto.randomUUID();
   const saved = (await chrome.storage.local.get('reserved')).reserved || [];
-  saved.push({ token, folderUrl: f.folderUrl, shared: f.shared, image: imageKey, caption, at: Date.now() });
+  saved.push({ token, folderUrl: f.folderUrl, shared: f.shared, images: imageKeys, caption, at: Date.now() });
   await chrome.storage.local.set({ reserved: saved.filter(r => Date.now() - r.at < RESERVE_MS) });
   // item: trang Facebook giữ lại bản sao, gửi kèm khi bấm Đăng → vẫn ghi được dù giữ chỗ đã quá 10 phút
-  return { ok: true, token, caption, image: label, files, item: { folderUrl: f.folderUrl, shared: f.shared, image: imageKey, caption }, warnings: [!imageKey && 'Hết ảnh chưa dùng', !caption && 'Hết caption chưa dùng'].filter(Boolean) };
+  return { ok: true, token, caption, image: label, files, item: { folderUrl: f.folderUrl, shared: f.shared, images: imageKeys, caption },
+    warnings: [!imageKeys.length ? 'Hết ảnh chưa dùng' : imageKeys.length < want && `Chỉ còn ${imageKeys.length}/${want} ảnh chưa dùng`, !caption && 'Hết caption chưa dùng'].filter(Boolean) };
 }
 
 async function finish(token, used, fallback) {
@@ -258,13 +266,13 @@ async function finish(token, used, fallback) {
   await chrome.storage.local.set({ reserved: all.filter(r => r.token !== token) });
   if (!item || !used) return { ok: true, released: Boolean(item) };
   const { key, history } = await loadState(item.folderUrl);
-  if (item.image && !history.images.includes(item.image)) history.images.push(item.image);
+  for (const img of itemImages(item)) if (!history.images.includes(img)) history.images.push(img);
   if (item.caption && !history.captions.includes(item.caption)) history.captions.push(item.caption);
   await chrome.storage.local.set({ [key]: history });
   // Thư mục chung → ghi file đánh dấu để các profile khác không đăng lại
   let markError = '';
   if (item.shared) { try { await writeMarkers(item.shared, item); } catch (err) { markError = err.message; } }
-  return { ok: true, image: item.image, caption: item.caption, markError };
+  return { ok: true, image: itemImages(item).join(', '), caption: item.caption, markError };
 }
 
 async function resetHistory() {

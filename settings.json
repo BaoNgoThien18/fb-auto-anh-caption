@@ -3,5 +3,6 @@
   "captionFile": "captions.txt",
   "enabled": true,
   "splitCollage": true,
-  "delaySeconds": 2
+  "delaySeconds": 2,
+  "imagesPerPost": 2
 }
