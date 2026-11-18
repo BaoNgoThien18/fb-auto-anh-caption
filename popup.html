@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <title>FB Auto Ảnh + Caption</title>
+  <style>
+    body { margin: 0; width: 300px; font: 13px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; color: #111827; background: #fff; }
+    header { padding: 12px 14px; border-bottom: 1px solid #e5e7eb; font-weight: 700; font-size: 14px; }
+    main { padding: 12px 14px; display: grid; gap: 10px; }
+    .row { display: flex; justify-content: space-between; gap: 8px; }
+    .muted { color: #6b7280; font-size: 12px; word-break: break-all; }
+    .pill { padding: 1px 8px; border-radius: 999px; background: #eff6ff; color: #1d4ed8; font-weight: 700; }
+    .err { padding: 8px 10px; border-radius: 8px; background: #fef2f2; color: #b91c1c; font-size: 12px; }
+    .off { padding: 8px 10px; border-radius: 8px; background: #fffbeb; color: #92400e; font-size: 12px; }
+    button { height: 32px; border: 1px solid #d1d5db; border-radius: 8px; background: #fff; font: inherit; font-weight: 600; cursor: pointer; }
+    button:hover { background: #f9fafb; }
+  </style>
+</head>
+<body>
+  <header>🖼️ FB Auto Ảnh + Caption</header>
+  <main id="app"><div class="muted">Đang đọc thư mục…</div></main>
+  <script src="lib/package-dir.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

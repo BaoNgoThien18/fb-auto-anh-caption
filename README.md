@@ -1,0 +1,19 @@
+# FB Auto Ảnh + Caption
+
+Mở hộp **Tạo bài viết** trên Facebook → tự điền 1 ảnh + 1 caption ngẫu nhiên, không trùng. **Không tự bấm Đăng.**
+
+## Cài đặt
+1. Bấm **Code → Download ZIP**, giải nén, để thư mục ở chỗ cố định (đừng xóa).
+2. Vào `chrome://extensions` → bật **Developer mode** → **Load unpacked** → chọn thư mục vừa giải nén.
+3. Bấm **Details** của extension → bật **Allow access to file URLs** (bắt buộc).
+4. Bấm vào icon extension 1 lần → tự tạo thư mục `Downloads/fb-anh` có sẵn `captions.txt`.
+
+## Dùng
+- Chép ảnh vào `Downloads/fb-anh`, sửa `captions.txt` (**mỗi dòng 1 caption**).
+- Vào Facebook → bấm "Bạn đang nghĩ gì?" → tự có ảnh + caption → kiểm tra rồi bấm **Đăng**.
+- Ảnh ghép nhiều khung được tự cắt, mỗi bài dùng 1 ô.
+- Đã đăng thì ghi vào `Downloads/fb-anh/da-dang/` → mọi profile trên máy không đăng lại. Xóa file trong đó để dùng lại.
+
+## Lỗi hay gặp
+- Không đọc được ảnh → chưa bật **Allow access to file URLs**.
+- Không ghi được `da-dang` → tắt "Hỏi vị trí lưu tệp" trong `chrome://settings/downloads`.
