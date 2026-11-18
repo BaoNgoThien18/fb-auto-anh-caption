@@ -51,7 +51,7 @@ const MARK_README = 'Mỗi file trong thư mục này đánh dấu 1 ảnh (anh_
 const ASK_ERROR = 'Chrome đang bật "Hỏi vị trí lưu từng tệp trước khi tải xuống" nên extension không ghi được vào Downloads/'
   + ' → mở chrome://settings/downloads, TẮT mục đó, rồi bấm vào icon extension để thử lại.';
 
-async function writeDownload(relPath, text) {
+async function writeDownload(relPath, text, keep = false) {
   try { await chrome.downloads.setUiOptions({ enabled: false }); } catch (_) {}
   try {
     const id = await chrome.downloads.download({
@@ -70,11 +70,12 @@ async function writeDownload(relPath, text) {
       await new Promise(r => setTimeout(r, 150));
     }
     if (item?.state === 'in_progress') { try { await chrome.downloads.cancel(id); } catch (_) {} }
-    try { await chrome.downloads.erase({ id }); } catch (_) {} // chỉ xóa khỏi lịch sử tải, file vẫn giữ
+    // keep: giữ mục tải trong lịch sử để sau này xóa được file (chrome.downloads.removeFile cần id còn trong lịch sử)
+    if (!keep || item?.state !== 'complete') { try { await chrome.downloads.erase({ id }); } catch (_) {} } // chỉ xóa khỏi lịch sử tải, file vẫn giữ
     const abs = String(item?.filename || '').replace(/\\/g, '/');
     if (item?.state === 'complete' && abs.endsWith('/' + relPath)) {
       await chrome.storage.local.set({ askWarned: prompted }); // còn bật hỏi nơi lưu → popup nhắc tắt
-      return abs;
+      return keep ? { abs, id } : abs;
     }
     if (prompted || item?.state === 'complete') throw new Error(ASK_ERROR);
     throw new Error(`Không ghi được ${relPath}: ${item?.error || 'quá thời gian'}`);
@@ -101,6 +102,44 @@ async function sharedFolderPath(sub) {
   const folder = abs.slice(0, abs.length - rel.length) + sub;
   await chrome.storage.local.set({ [key]: folder });
   return folder;
+}
+
+// ---------- Giữ chỗ giữa các profile (thư mục giu-cho/) ----------
+// Lúc điền: ghi 1 file giữ chỗ cho bộ ảnh + caption vừa chọn. Profile khác thấy file còn hạn (< 10 phút) thì bỏ qua.
+// Đăng xong / đóng hộp: xóa file. 2 profile chọn trùng trong cùng 1 lúc → profile ghi SAU tự chọn lại.
+const HOLD_DIR = 'giu-cho';
+
+async function ownerId() {
+  let { ownerId: id } = await chrome.storage.local.get('ownerId');
+  if (!id) { id = Math.random().toString(36).slice(2, 10); await chrome.storage.local.set({ ownerId: id }); }
+  return id;
+}
+
+async function listHolds(folderUrl) {
+  try { return P.parseHolds(P.parseDirListing((await offscreen('LIST_DIR', `${folderUrl}${HOLD_DIR}/`)).html).map(f => f.name), Date.now(), RESERVE_MS); }
+  catch (_) { return []; } // chưa có thư mục giu-cho/
+}
+
+async function writeHold(sub, hold) {
+  const name = P.holdName(hold);
+  const { id } = await writeDownload(`${sub}/${HOLD_DIR}/${name}`, `${hold.images.join('\n')}\n${hold.caption || ''}\n`, true);
+  return { holdId: id, holdName: name };
+}
+
+async function removeHold(item) {
+  if (!item?.holdId) return;
+  try { await chrome.downloads.removeFile(item.holdId); } catch (_) {}
+  try { await chrome.downloads.erase({ id: item.holdId }); } catch (_) {}
+}
+
+// Ảnh/caption đang được profile KHÁC giữ chỗ
+function heldByOthers(pool, f, holds, me) {
+  const anh = new Set(), cap = new Set();
+  for (const h of holds) if (h.owner !== me) { h.anh.forEach(x => anh.add(x)); h.cap.forEach(x => cap.add(x)); }
+  return {
+    images: pool.filter(e => anh.has(P.stableHash(e.key))).map(e => e.key),
+    captions: f.captions.filter(c => cap.has(P.stableHash(c))),
+  };
 }
 
 async function sharedMarkers(folderUrl) {
@@ -205,6 +244,7 @@ async function status() {
   await chrome.storage.local.remove(['askBlocked', ...cachedPaths]);
   try {
     const { f, pool } = await readPool();
+    const ownerIdCache = await ownerId();
     const { history, reserved } = await loadState(f.folderUrl);
     const usedImg = P.blockedKeys(pool, usedImageKeys(pool, f, history.images)), usedCap = usedCaptions(f, history.captions);
     const collages = new Set(pool.filter(e => e.tile).map(e => e.name));
@@ -216,6 +256,7 @@ async function status() {
       files: f.images.length, collages: collages.size, tiles: pool.filter(e => e.tile).length,
       captions: { total: f.captions.length, used: f.captions.filter(c => usedCap.has(c)).length },
       reserved: reserved.length,
+      heldByOthers: f.shared ? (await listHolds(f.folderUrl)).filter(h => h.owner !== ownerIdCache).length : 0,
       askWarned: Boolean((await chrome.storage.local.get('askWarned')).askWarned),
     };
   } catch (err) {
@@ -226,11 +267,25 @@ async function status() {
 async function next() {
   const { f, pool } = await readPool();
   if (!f.s.enabled) return { ok: false, error: 'Đang tắt (enabled: false trong settings.json)' };
-  const { history, reserved } = await loadState(f.folderUrl);
-  const blockedImg = P.blockedKeys(pool, usedImageKeys(pool, f, [...history.images, ...reserved.flatMap(itemImages)]));
-  const blockedCap = usedCaptions(f, [...history.captions, ...reserved.map(r => r.caption)]);
-  const imageKeys = P.pickImages(pool, blockedImg, f.s.imagesPerPost);
-  const caption = P.pickUnused(f.captions, blockedCap);
+  const me = await ownerId();
+  let imageKeys = [], caption = null, hold = {}, holdWarn = '';
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const { history, reserved } = await loadState(f.folderUrl);
+    const others = f.shared ? heldByOthers(pool, f, await listHolds(f.folderUrl), me) : { images: [], captions: [] };
+    const blockedImg = P.blockedKeys(pool, usedImageKeys(pool, f, [...history.images, ...reserved.flatMap(itemImages), ...others.images]));
+    const blockedCap = usedCaptions(f, [...history.captions, ...reserved.map(r => r.caption), ...others.captions]);
+    imageKeys = P.pickImages(pool, blockedImg, f.s.imagesPerPost);
+    caption = P.pickUnused(f.captions, blockedCap);
+    if (!f.shared || (!imageKeys.length && !caption)) break;
+    // Ghi giữ chỗ rồi đọc lại: profile khác vừa giữ trùng TRƯỚC mình → bỏ giữ chỗ của mình, chọn lại
+    const at = Date.now();
+    try { hold = await writeHold(f.shared, { at, owner: me, images: imageKeys, caption }); }
+    catch (err) { hold = {}; holdWarn = `Chưa giữ chỗ được cho profile khác (${err.message})`; break; }
+    const mine = P.parseHolds([hold.holdName], Date.now(), RESERVE_MS)[0];
+    if (!mine || !P.holdConflict(mine, await listHolds(f.folderUrl))) break;
+    await removeHold(hold);
+    hold = {};
+  }
   if (!imageKeys.length && !caption) return { ok: false, error: 'Đã dùng hết ảnh và caption trong thư mục' };
   // Mỗi bài imagesPerPost ảnh: ảnh thường giữ nguyên, ảnh ghép thì cắt đúng các ô đã chọn
   const files = [];
@@ -253,18 +308,20 @@ async function next() {
   const want = f.s.imagesPerPost;
   const token = crypto.randomUUID();
   const saved = (await chrome.storage.local.get('reserved')).reserved || [];
-  saved.push({ token, folderUrl: f.folderUrl, shared: f.shared, images: imageKeys, caption, at: Date.now() });
+  saved.push({ token, folderUrl: f.folderUrl, shared: f.shared, images: imageKeys, caption, at: Date.now(), ...hold });
+  const expired = saved.filter(r => Date.now() - r.at >= RESERVE_MS);
   await chrome.storage.local.set({ reserved: saved.filter(r => Date.now() - r.at < RESERVE_MS) });
+  for (const r of expired) await removeHold(r); // giữ chỗ quá hạn → dọn file
   // item: trang Facebook giữ lại bản sao, gửi kèm khi bấm Đăng → vẫn ghi được dù giữ chỗ đã quá 10 phút
-  return { ok: true, token, caption, image: label, files, item: { folderUrl: f.folderUrl, shared: f.shared, images: imageKeys, caption },
-    warnings: [!imageKeys.length ? 'Hết ảnh chưa dùng' : imageKeys.length < want && `Chỉ còn ${imageKeys.length}/${want} ảnh chưa dùng`, !caption && 'Hết caption chưa dùng'].filter(Boolean) };
+  return { ok: true, token, caption, image: label, files, item: { folderUrl: f.folderUrl, shared: f.shared, images: imageKeys, caption, ...hold },
+    warnings: [!imageKeys.length ? 'Hết ảnh chưa dùng' : imageKeys.length < want && `Chỉ còn ${imageKeys.length}/${want} ảnh chưa dùng`, !caption && 'Hết caption chưa dùng', holdWarn].filter(Boolean) };
 }
 
 async function finish(token, used, fallback) {
   const all = (await chrome.storage.local.get('reserved')).reserved || [];
   const item = all.find(r => r.token === token) || (used && fallback?.folderUrl ? fallback : null);
   await chrome.storage.local.set({ reserved: all.filter(r => r.token !== token) });
-  if (!item || !used) return { ok: true, released: Boolean(item) };
+  if (!item || !used) { await removeHold(item); return { ok: true, released: Boolean(item) }; }
   const { key, history } = await loadState(item.folderUrl);
   for (const img of itemImages(item)) if (!history.images.includes(img)) history.images.push(img);
   if (item.caption && !history.captions.includes(item.caption)) history.captions.push(item.caption);
@@ -272,22 +329,32 @@ async function finish(token, used, fallback) {
   // Thư mục chung → ghi file đánh dấu để các profile khác không đăng lại
   let markError = '';
   if (item.shared) { try { await writeMarkers(item.shared, item); } catch (err) { markError = err.message; } }
+  await removeHold(item); // đã có file "đã đăng" → bỏ giữ chỗ
   return { ok: true, image: itemImages(item).join(', '), caption: item.caption, markError };
 }
 
 async function resetHistory() {
   const f = await readFolder();
   await chrome.storage.local.remove(historyKey(f.folderUrl));
+  for (const r of (await chrome.storage.local.get('reserved')).reserved || []) await removeHold(r);
   await chrome.storage.local.set({ reserved: [] });
   return { ok: true };
+}
+
+// Các thao tác đọc/ghi giữ chỗ chạy LẦN LƯỢT (2 tab cùng mở hộp tạo bài không bốc trùng ảnh)
+let queue = Promise.resolve();
+function serial(fn) {
+  const run = queue.then(fn);
+  queue = run.catch(() => {});
+  return run;
 }
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg?.target === 'offscreen') return;
   const run = {
-    NEXT: () => next(),
-    USED: () => finish(msg.token, true, msg.item),
-    RELEASE: () => finish(msg.token, false),
+    NEXT: () => serial(next),
+    USED: () => serial(() => finish(msg.token, true, msg.item)),
+    RELEASE: () => serial(() => finish(msg.token, false)),
     STATUS: () => status(),
     PREPARE: async () => {
       const s = await settings();
@@ -299,7 +366,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       await chrome.storage.local.set({ [pkgKey(dir)]: msg.files });
       return { ok: true };
     },
-    RESET: () => resetHistory(),
+    RESET: () => serial(resetHistory),
   }[msg?.type];
   if (!run) return;
   run().then(sendResponse, err => sendResponse({ ok: false, error: err.message }));

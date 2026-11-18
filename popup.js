@@ -34,6 +34,7 @@ async function render() {
     <div class="muted">${s.files} file ảnh${s.splitCollage ? ` · ${s.collages} ảnh ghép đã cắt thành ${s.tiles} ô (mỗi ô là 1 ảnh)` : ' · không cắt ảnh ghép'} · <b>mỗi bài ${s.imagesPerPost} ảnh</b></div>
     ${s.shared ? `<div class="muted">Dùng chung cho mọi profile: ${s.sharedMarked} ảnh/caption đã đăng được đánh dấu trong <b>da-dang/</b>. Xóa file trong đó để dùng lại.</div>` : ''}
     ${s.reserved ? `<div class="muted">${s.reserved} bộ đang được giữ trong hộp Create post chưa đăng.</div>` : ''}
+    ${s.heldByOthers ? `<div class="muted">${s.heldByOthers} bộ đang được profile khác giữ (đang mở hộp tạo bài) — profile này sẽ không lấy trùng.</div>` : ''}
     <button id="reset">Làm mới lịch sử${s.shared ? ' của profile này' : ' (dùng lại từ đầu)'}</button>`;
   bindAskFix();
   document.getElementById('reset').onclick = async () => {

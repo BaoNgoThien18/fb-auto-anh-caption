@@ -13,6 +13,7 @@ Mở hộp **Tạo bài viết** trên Facebook → tự điền 1 ảnh + 1 cap
 - Vào Facebook → bấm "Bạn đang nghĩ gì?" → tự có ảnh + caption → kiểm tra rồi bấm **Đăng**.
 - Ảnh ghép nhiều khung được tự cắt thành từng ô; mỗi bài lấy 2 ô (ưu tiên cùng 1 ảnh ghép), không trùng.
 - Đã đăng thì ghi vào `Downloads/fb-anh/da-dang/` → mọi profile trên máy không đăng lại. Xóa file trong đó để dùng lại.
+- Nhiều profile mở hộp tạo bài cùng lúc: ảnh + caption vừa điền được giữ chỗ trong `fb-anh/giu-cho/` (tự xóa khi đăng xong / đóng hộp, tự hết hạn sau 10 phút) → các profile không lấy trùng nhau.
 
 ## Tùy chỉnh (`settings.json` trong thư mục extension)
 - `"delaySeconds": 2` — mở hộp tạo bài xong chờ bao nhiêu giây mới điền (có đếm ngược + nút Hủy). `0` = điền ngay.

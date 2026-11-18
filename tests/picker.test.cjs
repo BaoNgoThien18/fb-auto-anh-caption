@@ -107,3 +107,18 @@ test('pickImages: 2 ảnh/bài, ưu tiên ô cùng ảnh ghép, không trùng, k
     assert.equal(keys.every(k => k.startsWith('ghep')) || keys.includes('don.jpg'), true);
   }
 });
+
+test('giữ chỗ giữa các profile: tên file, đọc lại, hết hạn, xung đột', () => {
+  const now = 1_800_000_000_000, ttl = 600_000;
+  const name = P.holdName({ at: now, owner: 'p1', images: ['ghep.jpg#01', 'ghep.jpg#02'], caption: 'Chào cả nhà' });
+  assert.match(name, /^giu_1800000000000_p1_a[0-9a-f]{10}_a[0-9a-f]{10}_c[0-9a-f]{10}\.txt$/);
+  const [h] = P.parseHolds([name, 'README.txt'], now + 1000, ttl);
+  assert.equal(h.owner, 'p1');
+  assert.ok(h.anh.has(P.stableHash('ghep.jpg#02')) && h.cap.has(P.stableHash('Chào cả nhà')));
+  assert.equal(P.parseHolds([name], now + ttl + 1, ttl).length, 0, 'quá 10 phút thì bỏ');
+  const mine = P.parseHolds([P.holdName({ at: now + 50, owner: 'p2', images: ['ghep.jpg#02'] })], now, ttl)[0];
+  assert.equal(P.holdConflict(mine, [h]), true, 'p1 giữ trước → p2 phải chọn lại');
+  assert.equal(P.holdConflict(h, [mine]), false, 'p1 giữ trước thì không phải nhường');
+  const other = P.parseHolds([P.holdName({ at: now + 50, owner: 'p2', images: ['don.jpg'] })], now, ttl)[0];
+  assert.equal(P.holdConflict(other, [h]), false, 'khác ảnh thì không xung đột');
+});
